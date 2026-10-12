@@ -1,0 +1,6 @@
+{
+  "name": "Portal Fórmula Business News",
+  "description": "Portal líder de notícias, negócios, inovação, entretenimento e revista digital com experiência realista de virada de página e ecossistema de publicidade e afiliados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
