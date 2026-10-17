@@ -27,6 +27,7 @@ import { AdminAffiliatesSection } from './AdminAffiliatesSection';
 
 export const AdminDashboard: React.FC = () => {
   const { 
+    isPortalAdmin,
     t, 
     tickerItems, 
     addTickerItem, 
@@ -62,6 +63,8 @@ export const AdminDashboard: React.FC = () => {
   const totalClicks = adCampaigns.reduce((acc, c) => acc + c.clicks, 0);
   const totalCommissionsPaid = commissions.filter(c => c.status === 'PAID').reduce((acc, c) => acc + c.commissionAmount, 0);
   const totalCommissionsPending = commissions.filter(c => c.status === 'AVAILABLE' || c.status === 'PENDING').reduce((acc, c) => acc + c.commissionAmount, 0);
+
+  if (!isPortalAdmin) return null;
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
@@ -26,7 +26,8 @@ const MainPortalContent: React.FC = () => {
     activeMagazineId, 
     magazineIssues, 
     closeMagazineReader,
-    setIsAdCheckoutOpen 
+    setIsAdCheckoutOpen,
+    isPortalAdmin
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<string>('home');
@@ -37,6 +38,10 @@ const MainPortalContent: React.FC = () => {
   const currentOpenMagazine = magazineIssues.find(m => m.id === activeMagazineId);
 
   const handleNavigateTab = (tab: string) => {
+    if (tab === 'admin' && !isPortalAdmin) {
+      setActiveTab('home');
+      return;
+    }
     setActiveTab(tab);
     if (tab === 'anuncie') {
       setIsAdCheckoutOpen(true);
@@ -44,6 +49,12 @@ const MainPortalContent: React.FC = () => {
     setIsMobileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  useEffect(() => {
+    if (activeTab === 'admin' && !isPortalAdmin) {
+      setActiveTab('home');
+    }
+  }, [activeTab, isPortalAdmin]);
 
   return (
     <div className="min-h-screen bg-[#020B14] text-white flex flex-col selection:bg-[#D9A928] selection:text-black pb-16 lg:pb-0">
@@ -110,7 +121,7 @@ const MainPortalContent: React.FC = () => {
         )}
 
         {/* VIEW: ADMIN MASTER DASHBOARD (MAGAZINE MANAGER + FULL PLATFORM) */}
-        {activeTab === 'admin' && (
+        {activeTab === 'admin' && isPortalAdmin && (
           <AdminDashboard />
         )}
 

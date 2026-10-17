@@ -48,10 +48,10 @@ export const AdminPlansSection: React.FC = () => {
     updateAdPlan,
     deleteAdPlan,
     adPlansSyncError,
-    currentUser
+    isPortalAdmin
   } = useApp();
 
-  const canManage = currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN';
+  const canManage = isPortalAdmin;
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<AdPlan | null>(null);
   const [form, setForm] = useState<PlanForm>(emptyForm);

@@ -62,10 +62,10 @@ export const AdminAffiliatesSection: React.FC = () => {
     updateAffiliate,
     setAffiliateStatus,
     approveCommissionPayout,
-    currentUser
+    isPortalAdmin
   } = useApp();
 
-  const canManage = currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN';
+  const canManage = isPortalAdmin;
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<AffiliateSeller | null>(null);
   const [form, setForm] = useState<AffiliateForm>(emptyForm);

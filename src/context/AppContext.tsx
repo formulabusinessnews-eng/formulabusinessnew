@@ -39,7 +39,8 @@ import {
   initialFormulaDaBelezaProgram
 } from '../lib/mockData';
 import { translations } from '../i18n/translations';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { guestProfile, isPortalAdminIdentity, PORTAL_ADMIN_EMAIL, PORTAL_ADMIN_UID } from '../lib/adminAccess';
 import {
   deleteAdPlanRow,
   insertAdPlan,
@@ -113,7 +114,10 @@ interface AppContextType {
   t: (typeof translations)['pt-BR'];
   
   currentUser: UserProfile;
+  isPortalAdmin: boolean;
   switchUserRole: (role: UserRole) => void;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signOut: () => Promise<void>;
   
   // Site Settings
   siteSettings: SiteSettings;
@@ -244,30 +248,54 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const t = translations[language] || translations['pt-BR'];
 
-  // Current simulated user with role switching capability
-  const [currentUser, setCurrentUser] = useState<UserProfile>(() => ({
-    id: 'user-admin-1',
-    email: 'admin@formulabusiness.com.br',
-    name: 'Diretoria Executiva',
-    role: 'SUPER_ADMIN',
-    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-    phone: '+55 (11) 98888-0000',
-    companyName: 'Fórmula Business Group',
-    affiliateCode: 'ADMIN',
-    createdAt: '2026-01-01'
-  }));
+  const [isPortalAdmin, setIsPortalAdmin] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile>(guestProfile);
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    const applyAuthUser = (user: {
+      id: string;
+      email?: string;
+      created_at?: string;
+      user_metadata?: Record<string, unknown>;
+    } | null) => {
+      if (user && isPortalAdminIdentity(user.id, user.email)) {
+        const meta = user.user_metadata || {};
+        const name = typeof meta.name === 'string'
+          ? meta.name
+          : typeof meta.full_name === 'string'
+            ? meta.full_name
+            : 'Administrador';
+        setIsPortalAdmin(true);
+        setCurrentUser({
+          id: user.id,
+          email: user.email || PORTAL_ADMIN_EMAIL,
+          name,
+          role: 'SUPER_ADMIN',
+          createdAt: user.created_at || new Date().toISOString()
+        });
+        return;
+      }
+
+      setIsPortalAdmin(false);
+      setCurrentUser(prev => (prev.id === PORTAL_ADMIN_UID ? guestProfile() : prev));
+    };
+
+    supabase.auth.getSession().then(({ data }) => {
+      applyAuthUser(data.session?.user ?? null);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      applyAuthUser(session?.user ?? null);
+    });
+
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   const switchUserRole = (role: UserRole) => {
-    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
-      setCurrentUser({
-        id: 'user-admin-1',
-        email: 'admin@formulabusiness.com.br',
-        name: 'Diretoria Executiva (Admin)',
-        role,
-        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-        createdAt: '2026-01-01'
-      });
-    } else if (role === 'SELLER') {
+    if (isPortalAdmin || role === 'SUPER_ADMIN' || role === 'ADMIN') return;
+    if (role === 'SELLER') {
       setCurrentUser({
         id: 'user-seller-1',
         email: 'joao.consultor@formulabusiness.com.br',
@@ -298,6 +326,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         createdAt: '2026-10-05'
       });
     }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    if (!supabase) {
+      return { success: false, error: 'O acesso administrativo não está disponível neste ambiente.' };
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password
+    });
+
+    if (error || !data.user) {
+      return { success: false, error: 'E-mail ou senha inválidos.' };
+    }
+
+    if (!isPortalAdminIdentity(data.user.id, data.user.email)) {
+      await supabase.auth.signOut();
+      return { success: false, error: 'Esta conta não tem acesso ao painel administrativo.' };
+    }
+
+    return { success: true };
+  };
+
+  const signOut = async () => {
+    if (supabase) await supabase.auth.signOut();
+    setIsPortalAdmin(false);
+    setCurrentUser(guestProfile());
   };
 
   // State entities loaded from LocalStorage or seeded from mockData
@@ -1191,8 +1247,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true };
   };
 
-  const assertPlanAdmin = () =>
-    currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN';
+  const assertPlanAdmin = () => isPortalAdmin;
 
   const parseAdPlanInput = (input: AdPlanInput): AdPlanInput | { error: string } => {
     const name = input.name.trim();
@@ -1297,8 +1352,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     logAuditAction('STATUS_CAMPAIGN', 'PUBLICIDADE', `Campanha ${id} alterada para ${status}`);
   };
 
-  const assertCouponAdmin = () =>
-    currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN';
+  const assertCouponAdmin = () => isPortalAdmin;
 
   const parseCouponInput = (input: CouponInput, ignoreId?: string): CouponInput | { error: string } => {
     const code = input.code.trim().toUpperCase().replace(/\s+/g, '');
@@ -1430,8 +1484,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true };
   };
 
-  const assertAffiliateAdmin = () =>
-    currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN';
+  const assertAffiliateAdmin = () => isPortalAdmin;
 
   const parseAffiliateInput = (input: AffiliateInput, ignoreId?: string): AffiliateInput | { error: string } => {
     const name = input.name.trim();
@@ -1602,7 +1655,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setLanguage,
         t,
         currentUser,
+        isPortalAdmin,
         switchUserRole,
+        signIn,
+        signOut,
         siteSettings,
         updateSiteSettings,
         news,

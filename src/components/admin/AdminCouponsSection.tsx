@@ -105,10 +105,10 @@ export const AdminCouponsSection: React.FC = () => {
     toggleCouponActive,
     deleteCoupon,
     couponsSyncError,
-    currentUser
+    isPortalAdmin
   } = useApp();
 
-  const canManage = currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN';
+  const canManage = isPortalAdmin;
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<Coupon | null>(null);
   const [form, setForm] = useState<CouponForm>(emptyForm);
