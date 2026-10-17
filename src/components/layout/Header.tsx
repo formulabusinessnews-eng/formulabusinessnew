@@ -5,7 +5,6 @@ import {
   Search, 
   Globe, 
   Radio, 
-  User, 
   ShieldCheck, 
   Briefcase, 
   TrendingUp, 
@@ -40,7 +39,6 @@ export const Header: React.FC<Props> = ({
     t, 
     currentUser, 
     isPortalAdmin,
-    switchUserRole,
     signIn,
     signOut, 
     siteSettings,
@@ -96,7 +94,9 @@ export const Header: React.FC<Props> = ({
     }
     setLoginPassword('');
     setIsUserMenuOpen(false);
-    onNavigateTab('admin');
+    if (result.panel === 'seller') onNavigateTab('seller');
+    else if (result.panel === 'advertiser') onNavigateTab('advertiser');
+    else onNavigateTab('admin');
   };
 
   const handleSignOut = async () => {
@@ -180,7 +180,7 @@ export const Header: React.FC<Props> = ({
                   {currentUser.name.charAt(0)}
                 </div>
                 <span className="hidden sm:inline font-medium text-[10px] truncate max-w-[80px]">
-                  {isPortalAdmin ? 'ADMIN' : 'ENTRAR'}
+                  {isPortalAdmin ? 'ADMIN' : currentUser.role === 'SELLER' ? 'AFILIADO' : currentUser.role === 'ADVERTISER' ? 'ANUNCIANTE' : 'ENTRAR'}
                 </span>
                 <ChevronDown className="w-3 h-3 text-gray-400" />
               </button>
@@ -195,7 +195,7 @@ export const Header: React.FC<Props> = ({
                   </div>
 
                   <div className="py-2 space-y-1">
-                    {isPortalAdmin ? (
+                    {isPortalAdmin || currentUser.role === 'SELLER' || currentUser.role === 'ADVERTISER' ? (
                       <button
                         onClick={handleSignOut}
                         className="w-full text-left px-2.5 py-1.5 rounded-lg text-gray-300 hover:bg-gray-800"
@@ -210,7 +210,7 @@ export const Header: React.FC<Props> = ({
                           handleSignIn();
                         }}
                       >
-                        <p className="text-[10px] font-bold text-gray-500 uppercase">Acesso do administrador</p>
+                        <p className="text-[10px] font-bold text-gray-500 uppercase">Acesso do portal</p>
                         <input
                           type="email"
                           value={loginEmail}
@@ -235,37 +235,10 @@ export const Header: React.FC<Props> = ({
                         >
                           {loginLoading ? 'Entrando...' : t.nav.login}
                         </button>
+                        <p className="text-[10px] text-gray-500">
+                          Administrador, afiliado e anunciante entram com a conta cadastrada no Supabase.
+                        </p>
                       </form>
-                    )}
-
-                    {!isPortalAdmin && (
-                    <>
-                    <p className="px-2 text-[10px] font-bold text-gray-500 uppercase">Alternar Perfil para Teste:</p>
-
-                    <button
-                      onClick={() => { switchUserRole('ADVERTISER'); setIsUserMenuOpen(false); onNavigateTab('advertiser'); }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between ${currentUser.role === 'ADVERTISER' ? 'bg-[#D9A928] text-black font-bold' : 'text-gray-300 hover:bg-gray-800'}`}
-                    >
-                      <span className="flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5" /> Anunciante</span>
-                      {currentUser.role === 'ADVERTISER' && <span className="text-[10px]">Ativo</span>}
-                    </button>
-
-                    <button
-                      onClick={() => { switchUserRole('SELLER'); setIsUserMenuOpen(false); onNavigateTab('seller'); }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between ${currentUser.role === 'SELLER' ? 'bg-[#D9A928] text-black font-bold' : 'text-gray-300 hover:bg-gray-800'}`}
-                    >
-                      <span className="flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5" /> Consultor / Afiliado</span>
-                      {currentUser.role === 'SELLER' && <span className="text-[10px]">Ativo</span>}
-                    </button>
-
-                    <button
-                      onClick={() => { switchUserRole('USER'); setIsUserMenuOpen(false); onNavigateTab('home'); }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between ${currentUser.role === 'USER' ? 'bg-[#D9A928] text-black font-bold' : 'text-gray-300 hover:bg-gray-800'}`}
-                    >
-                      <span className="flex items-center gap-1.5"><User className="w-3.5 h-3.5" /> Leitor / Público</span>
-                      {currentUser.role === 'USER' && <span className="text-[10px]">Ativo</span>}
-                    </button>
-                    </>
                     )}
                   </div>
                 </div>
@@ -477,12 +450,6 @@ export const Header: React.FC<Props> = ({
                   <h4 className="text-xs font-bold text-white truncate">{currentUser.name}</h4>
                   <span className="text-[10px] text-[#D9A928] font-mono">{currentUser.role}</span>
                 </div>
-                <button
-                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                  className="px-2 py-1 bg-[#0A2238] border border-gray-700 text-[10px] text-[#D9A928] rounded font-semibold"
-                >
-                  Alternar
-                </button>
               </div>
             </div>
 

@@ -42,14 +42,11 @@ export const AdCheckoutModal: React.FC = () => {
   const [creativeMobileUrl, setCreativeMobileUrl] = useState('https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&h=400&fit=crop&q=80');
   
   // Coupon state
-  const [couponCode, setCouponCode] = useState(currentUser.referredBy || 'JOAO10');
-  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number; message: string; seller?: string } | null>({
-    code: 'JOAO10',
-    discount: 89,
-    message: 'Cupom do consultor João (10% OFF) aplicado!',
-    seller: 'JOAO10'
-  });
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number; message: string; seller?: string } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   
   // Completed step
   const [isSuccess, setIsSuccess] = useState(false);
@@ -79,10 +76,12 @@ export const AdCheckoutModal: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPlan) return;
-    const res = createCampaign({
+    if (!selectedPlan || submitting) return;
+    setSubmitError(null);
+    setSubmitting(true);
+    const res = await createCampaign({
       advertiserName,
       advertiserEmail,
       companyName,
@@ -94,11 +93,14 @@ export const AdCheckoutModal: React.FC = () => {
       planId: selectedPlan.id,
       couponCode: appliedCoupon?.code
     });
+    setSubmitting(false);
 
     if (res.success && res.campaign) {
       setCreatedCampaignCode(res.campaign.campaignCode);
       setIsSuccess(true);
+      return;
     }
+    setSubmitError(res.error || 'Não foi possível gravar a campanha.');
   };
 
   const handleClose = () => {
@@ -330,7 +332,7 @@ export const AdCheckoutModal: React.FC = () => {
               </div>
             </div>
 
-            {/* Submit */}
+            {submitError && <p className="text-xs text-red-300">{submitError}</p>}
             <div className="pt-2 flex justify-end gap-3">
               <button
                 type="button"
@@ -341,10 +343,11 @@ export const AdCheckoutModal: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#D9A928] to-[#F3C64B] text-black font-extrabold shadow-lg shadow-[#D9A928]/25 hover:scale-105 active:scale-95 transition flex items-center gap-2"
+                disabled={submitting}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#D9A928] to-[#F3C64B] text-black font-extrabold shadow-lg shadow-[#D9A928]/25 hover:scale-105 active:scale-95 transition flex items-center gap-2 disabled:opacity-60"
               >
                 <ShieldCheck className="w-4 h-4" />
-                {t.ads.submitCampaign}
+                {submitting ? 'Gravando...' : t.ads.submitCampaign}
               </button>
             </div>
 

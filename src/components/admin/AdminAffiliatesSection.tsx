@@ -12,6 +12,7 @@ type AffiliateForm = {
   couponCode: string;
   commissionPercent: string;
   status: AffiliateSeller['status'];
+  password: string;
 };
 
 const fieldClass =
@@ -27,7 +28,8 @@ const emptyForm = (): AffiliateForm => ({
   code: '',
   couponCode: '',
   commissionPercent: '10',
-  status: 'ACTIVE'
+  status: 'ACTIVE',
+  password: ''
 });
 
 const formFromSeller = (seller: AffiliateSeller): AffiliateForm => ({
@@ -37,7 +39,8 @@ const formFromSeller = (seller: AffiliateSeller): AffiliateForm => ({
   code: seller.code,
   couponCode: seller.couponCode,
   commissionPercent: String(Math.round(seller.commissionRate * 10000) / 100),
-  status: seller.status
+  status: seller.status,
+  password: ''
 });
 
 const statusLabel: Record<AffiliateSeller['status'], string> = {
@@ -100,7 +103,8 @@ export const AdminAffiliatesSection: React.FC = () => {
       code: form.code,
       couponCode: form.couponCode || form.code,
       commissionRate: Number(form.commissionPercent) / 100,
-      status: form.status
+      status: form.status,
+      password: form.password
     };
 
     const result = editing
@@ -158,7 +162,7 @@ export const AdminAffiliatesSection: React.FC = () => {
             Afiliados e comissões
           </h3>
           <p className="text-xs text-gray-400 mt-1">
-            Consultores e comissões gravados nas tabelas do Supabase. A lista só mostra o que está no banco.
+            Consultores, cupons e comissões gravados nas tabelas do Supabase. O afiliado entra com o e-mail e a senha definidos aqui.
           </p>
           <p className="text-[11px] text-[#D9A928] mt-1 flex items-center gap-1.5">
             <Database className="w-3.5 h-3.5" />
@@ -392,6 +396,21 @@ export const AdminAffiliatesSection: React.FC = () => {
               <label className="space-y-1">
                 <span className="text-gray-400">Cupom</span>
                 <input className={fieldClass} value={form.couponCode} onChange={event => setForm({ ...form, couponCode: event.target.value.toUpperCase() })} placeholder="Igual ao código, se vazio" />
+              </label>
+              <label className="space-y-1 sm:col-span-2">
+                <span className="text-gray-400">
+                  {editing?.userId ? 'Senha de acesso (já cadastrada)' : 'Senha de acesso'}
+                </span>
+                <input
+                  type="password"
+                  className={fieldClass}
+                  value={form.password}
+                  onChange={event => setForm({ ...form, password: event.target.value })}
+                  placeholder={editing?.userId ? 'Acesso já criado' : 'Mínimo de 6 caracteres'}
+                  required={!editing}
+                  disabled={Boolean(editing?.userId)}
+                  autoComplete="new-password"
+                />
               </label>
               <label className="space-y-1">
                 <span className="text-gray-400">Comissão (%)</span>

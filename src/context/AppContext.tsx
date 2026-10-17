@@ -40,7 +40,9 @@ import {
 } from '../lib/mockData';
 import { translations } from '../i18n/translations';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
-import { guestProfile, isPortalAdminIdentity, PORTAL_ADMIN_EMAIL, PORTAL_ADMIN_UID } from '../lib/adminAccess';
+import { guestProfile, isPortalAdminIdentity, PORTAL_ADMIN_EMAIL } from '../lib/adminAccess';
+import { fetchProfileById, findProfileIdByEmail, registerPortalUser } from '../lib/accountStore';
+import { bumpCampaignStat, fetchCampaigns, insertCampaignRow, updateCampaignRow } from '../lib/campaignStore';
 import {
   deleteAdPlanRow,
   insertAdPlan,
@@ -106,7 +108,18 @@ type AffiliateInput = {
   couponCode: string;
   commissionRate: number;
   status: AffiliateSeller['status'];
+  password?: string;
 };
+
+type AdvertiserAccountInput = {
+  name: string;
+  email: string;
+  phone: string;
+  companyName: string;
+  password: string;
+};
+
+type PortalPanel = 'admin' | 'seller' | 'advertiser';
 
 interface AppContextType {
   language: Language;
@@ -116,7 +129,7 @@ interface AppContextType {
   currentUser: UserProfile;
   isPortalAdmin: boolean;
   switchUserRole: (role: UserRole) => void;
-  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string; panel?: PortalPanel }>;
   signOut: () => Promise<void>;
   
   // Site Settings
@@ -159,6 +172,7 @@ interface AppContextType {
   updateAdPlan: (id: string, input: AdPlanInput) => Promise<{ success: boolean; error?: string }>;
   deleteAdPlan: (id: string) => Promise<{ success: boolean; error?: string }>;
   adCampaigns: AdCampaign[];
+  campaignsSyncError: string | null;
   coupons: Coupon[];
   couponsSyncError: string | null;
   addCoupon: (input: CouponInput) => Promise<MutationResult>;
@@ -172,6 +186,7 @@ interface AppContextType {
   addAffiliate: (input: AffiliateInput) => Promise<MutationResult>;
   updateAffiliate: (id: string, input: AffiliateInput) => Promise<MutationResult>;
   setAffiliateStatus: (id: string, status: AffiliateSeller['status']) => Promise<MutationResult>;
+  addAdvertiserAccount: (input: AdvertiserAccountInput) => Promise<MutationResult>;
   
   createCampaign: (data: {
     advertiserName: string;
@@ -184,11 +199,11 @@ interface AppContextType {
     position: AdPosition;
     planId: string;
     couponCode?: string;
-  }) => { success: boolean; campaign?: AdCampaign; error?: string };
+  }) => Promise<{ success: boolean; campaign?: AdCampaign; error?: string }>;
 
-  updateCampaignStatus: (id: string, status: AdCampaign['status']) => void;
-  createAdminCampaign: (data: AdminCampaignInput) => { success: boolean; campaign?: AdCampaign; error?: string };
-  updateCampaign: (id: string, data: AdminCampaignInput) => { success: boolean; error?: string };
+  updateCampaignStatus: (id: string, status: AdCampaign['status']) => Promise<{ success: boolean; error?: string }>;
+  createAdminCampaign: (data: AdminCampaignInput) => Promise<{ success: boolean; campaign?: AdCampaign; error?: string }>;
+  updateCampaign: (id: string, data: AdminCampaignInput) => Promise<{ success: boolean; error?: string }>;
   trackAdClick: (campaignId: string) => string; // returns destination URL
   trackAdImpression: (campaignId: string, position: AdPosition) => void;
   validateCoupon: (code: string, originalPrice: number) => { 
@@ -254,13 +269,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     if (!supabase) return;
 
-    const applyAuthUser = (user: {
+    const applyAuthUser = async (user: {
       id: string;
       email?: string;
       created_at?: string;
       user_metadata?: Record<string, unknown>;
     } | null) => {
-      if (user && isPortalAdminIdentity(user.id, user.email)) {
+      if (!user) {
+        setIsPortalAdmin(false);
+        setCurrentUser(guestProfile());
+        return;
+      }
+
+      if (isPortalAdminIdentity(user.id, user.email)) {
         const meta = user.user_metadata || {};
         const name = typeof meta.name === 'string'
           ? meta.name
@@ -279,15 +300,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       setIsPortalAdmin(false);
-      setCurrentUser(prev => (prev.id === PORTAL_ADMIN_UID ? guestProfile() : prev));
+      try {
+        const profile = await fetchProfileById(user.id);
+        if (profile && (profile.role === 'SELLER' || profile.role === 'ADVERTISER')) {
+          setCurrentUser(profile);
+          return;
+        }
+      } catch {
+        // A sessão permanece, mas o painel só abre com a linha em profiles.
+      }
+      setCurrentUser(guestProfile());
     };
 
     supabase.auth.getSession().then(({ data }) => {
-      applyAuthUser(data.session?.user ?? null);
+      void applyAuthUser(data.session?.user ?? null);
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      applyAuthUser(session?.user ?? null);
+      void applyAuthUser(session?.user ?? null);
     });
 
     return () => data.subscription.unsubscribe();
@@ -328,7 +358,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string): Promise<{ success: boolean; error?: string; panel?: PortalPanel }> => {
     if (!supabase) {
       return { success: false, error: 'O acesso administrativo não está disponível neste ambiente.' };
     }
@@ -342,12 +372,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return { success: false, error: 'E-mail ou senha inválidos.' };
     }
 
-    if (!isPortalAdminIdentity(data.user.id, data.user.email)) {
-      await supabase.auth.signOut();
-      return { success: false, error: 'Esta conta não tem acesso ao painel administrativo.' };
+    if (isPortalAdminIdentity(data.user.id, data.user.email)) {
+      return { success: true, panel: 'admin' };
     }
 
-    return { success: true };
+    let profile = null;
+    try {
+      profile = await fetchProfileById(data.user.id);
+    } catch (profileError) {
+      await supabase.auth.signOut();
+      return {
+        success: false,
+        error: profileError instanceof Error ? profileError.message : 'Não foi possível ler o perfil.'
+      };
+    }
+
+    if (profile?.role === 'SELLER') {
+      if (supabase) {
+        const { data: sellerRow } = await supabase
+          .from('affiliate_sellers')
+          .select('status')
+          .eq('user_id', profile.id)
+          .maybeSingle();
+        if (sellerRow?.status === 'INACTIVE') {
+          await supabase.auth.signOut();
+          return { success: false, error: 'Este afiliado está inativo.' };
+        }
+      }
+      setIsPortalAdmin(false);
+      setCurrentUser(profile);
+      return { success: true, panel: 'seller' };
+    }
+
+    if (profile?.role === 'ADVERTISER') {
+      setIsPortalAdmin(false);
+      setCurrentUser(profile);
+      return { success: true, panel: 'advertiser' };
+    }
+
+    await supabase.auth.signOut();
+    return { success: false, error: 'Esta conta não tem acesso de administrador, afiliado ou anunciante.' };
   };
 
   const signOut = async () => {
@@ -413,9 +477,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   adPlansRef.current = adPlans;
 
   const [adCampaigns, setAdCampaigns] = useState<AdCampaign[]>(() => {
+    if (isSupabaseConfigured) return [];
     const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_campaigns`);
     return saved ? JSON.parse(saved) : initialAdCampaigns;
   });
+  const [campaignsSyncError, setCampaignsSyncError] = useState<string | null>(null);
+  const adCampaignsRef = useRef(adCampaigns);
+  adCampaignsRef.current = adCampaigns;
 
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
     const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_coupons`);
@@ -479,6 +547,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [adPlans]);
 
   useEffect(() => {
+    if (isSupabaseConfigured) return;
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_campaigns`, JSON.stringify(adCampaigns));
   }, [adCampaigns]);
 
@@ -487,10 +556,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [coupons]);
 
   useEffect(() => {
+    if (isSupabaseConfigured) return;
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_affiliates`, JSON.stringify(affiliates));
   }, [affiliates]);
 
   useEffect(() => {
+    if (isSupabaseConfigured) return;
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_commissions`, JSON.stringify(commissions));
   }, [commissions]);
 
@@ -652,6 +723,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       .catch(error => {
         if (cancelled) return;
         setCouponsSyncError(error instanceof Error ? error.message : 'Falha ao sincronizar os cupons de desconto.');
+      });
+
+    fetchCampaigns()
+      .then(items => {
+        if (cancelled) return;
+        setAdCampaigns(items);
+        setCampaignsSyncError(null);
+        logAuditAction('SYNC_CAMPAIGNS', 'PUBLICIDADE', `Campanhas sincronizadas com o Supabase (${items.length}).`);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        setCampaignsSyncError(error instanceof Error ? error.message : 'Falha ao sincronizar as campanhas.');
       });
 
     syncAffiliatesAndCommissions()
@@ -925,6 +1008,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
         return camp;
       }));
+      void bumpCampaignStat(campaignId, 'click');
     }
 
     return campaign.destinationUrl;
@@ -937,6 +1021,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       return camp;
     }));
+    void bumpCampaignStat(campaignId, 'impression');
   };
 
   const couponDiscountAmount = (coupon: Coupon, originalPrice: number) => {
@@ -1002,7 +1087,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   };
 
-  const recordSellerSale = (sale: {
+  const recordSellerSale = async (sale: {
     sellerCode: string;
     campaignId: string;
     campaignCode: string;
@@ -1029,27 +1114,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: sale.createdAt
     };
 
+    if (isSupabaseConfigured) await insertCommission(commission);
     setCommissions(prev => sortCommissions([commission, ...prev]));
-    if (isSupabaseConfigured) {
-      void insertCommission(commission).catch(() => undefined);
-    }
 
     if (!seller) return;
+    const alreadyReferred = commissionsRef.current.some(item =>
+      item.sellerCode === sale.sellerCode && item.advertiserName.trim().toLowerCase() === sale.advertiserName.trim().toLowerCase()
+    );
     const nextSeller: AffiliateSeller = {
       ...seller,
       totalSalesVolume: seller.totalSalesVolume + sale.netPaidAmount,
       accumulatedCommission: seller.accumulatedCommission + sale.commissionAmount,
       availableCommission: seller.availableCommission + sale.commissionAmount,
-      totalReferredClients: seller.totalReferredClients + 1
+      totalReferredClients: seller.totalReferredClients + (alreadyReferred ? 0 : 1)
     };
+    if (isSupabaseConfigured) await updateAffiliateRow(nextSeller);
     setAffiliates(prev => sortAffiliates(prev.map(item => item.id === seller.id ? nextSeller : item)));
-    if (isSupabaseConfigured) {
-      void updateAffiliateRow(nextSeller).catch(() => undefined);
-    }
   };
 
-  // Purchase Ad Campaign & Calculate Recurrent 10% Commission on Net Amount
-  const createCampaign = (data: {
+  const sellerRateFor = (sellerCode?: string) => {
+    if (!sellerCode) return 0;
+    const seller = affiliatesRef.current.find(item => item.code === sellerCode);
+    return seller?.commissionRate || 0.10;
+  };
+
+  const resolveAdvertiserId = async (email: string) => {
+    if (
+      currentUser.role === 'ADVERTISER' &&
+      currentUser.email.trim().toLowerCase() === email.trim().toLowerCase()
+    ) {
+      return currentUser.id;
+    }
+    if (!isSupabaseConfigured) return '';
+    return findProfileIdByEmail(email);
+  };
+
+  // Purchase Ad Campaign & Calculate Recurrent commission on the net amount
+  const createCampaign = async (data: {
     advertiserName: string;
     advertiserEmail: string;
     companyName: string;
@@ -1061,6 +1162,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     planId: string;
     couponCode?: string;
   }) => {
+    if (!isSupabaseConfigured) {
+      return { success: false, error: 'As campanhas só são gravadas nas tabelas do Supabase.' };
+    }
+
     const plan = adPlans.find(p => p.id === data.planId);
     if (!plan || !plan.active) {
       return { success: false, error: 'Plano selecionado não está disponível.' };
@@ -1092,20 +1197,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const now = new Date();
     const endDate = new Date(now.getTime() + plan.durationDays * 24 * 60 * 60 * 1000);
 
-    const newCampaignId = `camp-${Date.now()}`;
     const campaignCode = `CAMP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const sellerCommissionAmount = sellerOwnerCode
+      ? Math.round((netAmountPaid * sellerRateFor(sellerOwnerCode)) * 100) / 100
+      : 0;
 
-    let sellerCommissionAmount = 0;
-    if (sellerOwnerCode) {
-      sellerCommissionAmount = Math.round((netAmountPaid * 0.10) * 100) / 100;
-    }
-
-    const newCampaign: AdCampaign = {
-      id: newCampaignId,
+    const draft: AdCampaign = {
+      id: '',
       campaignCode,
-      advertiserId: currentUser.id,
+      advertiserId: await resolveAdvertiserId(data.advertiserEmail),
       advertiserName: data.advertiserName,
-      advertiserEmail: data.advertiserEmail,
+      advertiserEmail: data.advertiserEmail.trim().toLowerCase(),
       companyName: data.companyName,
       campaignName: data.campaignName,
       destinationUrl: data.destinationUrl,
@@ -1125,27 +1227,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       sellerCommissionAmount,
       sellerCommissionPaid: false,
       createdAt: now.toISOString(),
-      impressions: 1,
+      impressions: 0,
       clicks: 0
     };
 
-    setAdCampaigns(prev => [newCampaign, ...prev]);
-    if (sellerOwnerCode && sellerCommissionAmount > 0) {
-      recordSellerSale({
-        sellerCode: sellerOwnerCode,
-        campaignId: newCampaignId,
-        campaignCode,
-        advertiserName: data.companyName,
-        originalGrossAmount: originalPrice,
-        discountAmount,
-        netPaidAmount: netAmountPaid,
-        commissionAmount: sellerCommissionAmount,
-        createdAt: now.toISOString()
-      });
+    try {
+      const saved = await insertCampaignRow(draft);
+      setAdCampaigns(prev => [saved, ...prev]);
+      if (sellerOwnerCode && sellerCommissionAmount > 0) {
+        await recordSellerSale({
+          sellerCode: sellerOwnerCode,
+          campaignId: saved.id,
+          campaignCode: saved.campaignCode,
+          advertiserName: data.companyName,
+          originalGrossAmount: originalPrice,
+          discountAmount,
+          netPaidAmount: netAmountPaid,
+          commissionAmount: sellerCommissionAmount,
+          createdAt: saved.createdAt
+        });
+      }
+      logAuditAction('CREATE_CAMPAIGN', 'PUBLICIDADE', `Nova campanha paga: ${saved.campaignCode} - R$ ${netAmountPaid}`);
+      return { success: true, campaign: saved };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Não foi possível gravar a campanha.' };
     }
-    logAuditAction('CREATE_CAMPAIGN', 'PUBLICIDADE', `Nova campanha paga: ${campaignCode} - R$ ${netAmountPaid}`);
-
-    return { success: true, campaign: newCampaign };
   };
 
   const applyAdminCampaignFields = (data: AdminCampaignInput, base?: AdCampaign): AdCampaign | { error: string } => {
@@ -1169,7 +1275,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const netAmountPaid = Math.max(0, Math.round((originalPrice - discountAmount) * 100) / 100);
     const sellerCode = data.referredBySellerCode?.trim().toUpperCase() || undefined;
     const sellerCommissionAmount = sellerCode
-      ? Math.round((netAmountPaid * 0.10) * 100) / 100
+      ? Math.round((netAmountPaid * sellerRateFor(sellerCode)) * 100) / 100
       : 0;
 
     const now = new Date().toISOString();
@@ -1177,7 +1283,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return {
       id: base?.id || `camp-${Date.now()}`,
       campaignCode: base?.campaignCode || `CAMP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      advertiserId: base?.advertiserId || currentUser.id,
+      advertiserId: base?.advertiserId || '',
       advertiserName: data.advertiserName.trim() || companyName,
       advertiserEmail: data.advertiserEmail.trim(),
       companyName,
@@ -1204,9 +1310,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   };
 
-  const creditSellerCommission = (campaign: AdCampaign) => {
+  const creditSellerCommission = async (campaign: AdCampaign) => {
     if (!campaign.referredBySellerCode || !campaign.sellerCommissionAmount) return;
-    recordSellerSale({
+    const alreadyCredited = commissionsRef.current.some(item => item.campaignId === campaign.id);
+    if (alreadyCredited) return;
+    await recordSellerSale({
       sellerCode: campaign.referredBySellerCode,
       campaignId: campaign.id,
       campaignCode: campaign.campaignCode,
@@ -1219,20 +1327,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   };
 
-  const createAdminCampaign = (data: AdminCampaignInput) => {
+  const createAdminCampaign = async (data: AdminCampaignInput) => {
+    if (!isSupabaseConfigured) {
+      return { success: false, error: 'As campanhas só são gravadas nas tabelas do Supabase.' };
+    }
     const built = applyAdminCampaignFields(data);
     if ('error' in built) {
       return { success: false, error: built.error };
     }
 
-    setAdCampaigns(prev => [built, ...prev]);
-    creditSellerCommission(built);
-    logAuditAction('CREATE_CAMPAIGN', 'PUBLICIDADE', `Campanha criada no painel: ${built.campaignCode} — ${built.campaignName}`);
-    return { success: true, campaign: built };
+    try {
+      built.advertiserId = await resolveAdvertiserId(built.advertiserEmail);
+      const saved = await insertCampaignRow(built);
+      setAdCampaigns(prev => [saved, ...prev]);
+      await creditSellerCommission(saved);
+      logAuditAction('CREATE_CAMPAIGN', 'PUBLICIDADE', `Campanha criada no painel: ${saved.campaignCode} — ${saved.campaignName}`);
+      return { success: true, campaign: saved };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Não foi possível gravar a campanha.' };
+    }
   };
 
-  const updateCampaign = (id: string, data: AdminCampaignInput) => {
-    const existing = adCampaigns.find(c => c.id === id);
+  const updateCampaign = async (id: string, data: AdminCampaignInput) => {
+    const existing = adCampaignsRef.current.find(c => c.id === id);
     if (!existing) {
       return { success: false, error: 'Campanha não encontrada.' };
     }
@@ -1242,9 +1359,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return { success: false, error: built.error };
     }
 
-    setAdCampaigns(prev => prev.map(c => c.id === id ? built : c));
-    logAuditAction('UPDATE_CAMPAIGN', 'PUBLICIDADE', `Campanha editada: ${built.campaignCode} — ${built.campaignName}`);
-    return { success: true };
+    try {
+      built.advertiserId = existing.advertiserId || await resolveAdvertiserId(built.advertiserEmail);
+      const saved = isSupabaseConfigured ? await updateCampaignRow(built) : built;
+      setAdCampaigns(prev => prev.map(c => c.id === id ? saved : c));
+      logAuditAction('UPDATE_CAMPAIGN', 'PUBLICIDADE', `Campanha editada: ${saved.campaignCode} — ${saved.campaignName}`);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Não foi possível atualizar a campanha.' };
+    }
   };
 
   const assertPlanAdmin = () => isPortalAdmin;
@@ -1347,9 +1470,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true };
   };
 
-  const updateCampaignStatus = (id: string, status: AdCampaign['status']) => {
-    setAdCampaigns(prev => prev.map(c => c.id === id ? { ...c, status } : c));
-    logAuditAction('STATUS_CAMPAIGN', 'PUBLICIDADE', `Campanha ${id} alterada para ${status}`);
+  const updateCampaignStatus = async (id: string, status: AdCampaign['status']) => {
+    const existing = adCampaignsRef.current.find(item => item.id === id);
+    if (!existing) return { success: false, error: 'Campanha não encontrada.' };
+    const next = { ...existing, status };
+    try {
+      const saved = isSupabaseConfigured ? await updateCampaignRow(next) : next;
+      setAdCampaigns(prev => prev.map(c => c.id === id ? saved : c));
+      logAuditAction('STATUS_CAMPAIGN', 'PUBLICIDADE', `Campanha ${saved.campaignCode} alterada para ${status}`);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Não foi possível alterar o status.' };
+    }
   };
 
   const assertCouponAdmin = () => isPortalAdmin;
@@ -1523,35 +1655,71 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   };
 
+  const ensureSellerCoupon = async (seller: { code: string; couponCode: string }) => {
+    if (couponsRef.current.some(item => item.code.toUpperCase() === seller.couponCode)) return;
+    const coupon: Coupon = {
+      id: `coupon-${seller.couponCode.toLowerCase()}`,
+      code: seller.couponCode,
+      discountPercent: 10,
+      discountFixed: 0,
+      minPurchaseValue: 0,
+      firstPurchaseOnly: false,
+      sellerOwnerCode: seller.code,
+      active: true,
+      expiresAt: '',
+      usesCount: 0
+    };
+    if (isSupabaseConfigured) await insertCoupon(coupon);
+    setCoupons(prev => sortCoupons([...prev, coupon]));
+  };
+
   const addAffiliate = async (input: AffiliateInput) => {
     if (!assertAffiliateAdmin()) {
       return { success: false, error: 'Somente o administrador pode cadastrar consultores.' };
     }
     const parsed = parseAffiliateInput(input);
     if ('error' in parsed) return { success: false, error: parsed.error };
-
-    const seller: AffiliateSeller = {
-      ...parsed,
-      id: `seller-${Date.now()}`,
-      userId: '',
-      totalReferredClients: 0,
-      totalSalesVolume: 0,
-      accumulatedCommission: 0,
-      availableCommission: 0,
-      paidCommission: 0,
-      pendingCommission: 0,
-      createdAt: new Date().toISOString()
-    };
+    if (!input.password || input.password.length < 6) {
+      return { success: false, error: 'Defina uma senha de pelo menos 6 caracteres para o afiliado entrar.' };
+    }
+    if (!isSupabaseConfigured) {
+      return { success: false, error: 'O cadastro do afiliado só é gravado nas tabelas do Supabase.' };
+    }
 
     try {
-      if (isSupabaseConfigured) await insertAffiliate(seller);
+      const userId = await registerPortalUser({
+        email: parsed.email,
+        password: input.password,
+        name: parsed.name,
+        role: 'SELLER',
+        phone: parsed.phone,
+        affiliateCode: parsed.code
+      });
+      const seller: AffiliateSeller = {
+        ...parsed,
+        id: `seller-${Date.now()}`,
+        userId,
+        totalReferredClients: 0,
+        totalSalesVolume: 0,
+        accumulatedCommission: 0,
+        availableCommission: 0,
+        paidCommission: 0,
+        pendingCommission: 0,
+        createdAt: new Date().toISOString()
+      };
+      await insertAffiliate(seller);
+      try {
+        await ensureSellerCoupon(parsed);
+      } catch (couponError) {
+        const message = couponError instanceof Error ? couponError.message : '';
+        if (!/já existe|duplicate|23505/i.test(message)) throw couponError;
+      }
+      setAffiliates(prev => sortAffiliates([...prev, seller]));
+      logAuditAction('CREATE_AFFILIATE', 'AFILIADOS', `Novo consultor: ${seller.name} (${seller.code})`);
+      return { success: true };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Não foi possível cadastrar o consultor.' };
     }
-
-    setAffiliates(prev => sortAffiliates([...prev, seller]));
-    logAuditAction('CREATE_AFFILIATE', 'AFILIADOS', `Novo consultor: ${seller.name} (${seller.code})`);
-    return { success: true };
   };
 
   const updateAffiliate = async (id: string, input: AffiliateInput) => {
@@ -1566,6 +1734,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const next: AffiliateSeller = { ...current, ...parsed };
     try {
+      if (isSupabaseConfigured && input.password && !current.userId) {
+        if (input.password.length < 6) {
+          return { success: false, error: 'A senha do acesso precisa ter pelo menos 6 caracteres.' };
+        }
+        next.userId = await registerPortalUser({
+          email: parsed.email,
+          password: input.password,
+          name: parsed.name,
+          role: 'SELLER',
+          phone: parsed.phone,
+          affiliateCode: parsed.code
+        });
+      }
       if (isSupabaseConfigured) await updateAffiliateRow(next);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Não foi possível atualizar o consultor.' };
@@ -1588,6 +1769,39 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       commissionRate: current.commissionRate,
       status
     });
+  };
+
+  const addAdvertiserAccount = async (input: AdvertiserAccountInput) => {
+    if (!isPortalAdmin) {
+      return { success: false, error: 'Somente o administrador pode cadastrar o acesso do anunciante.' };
+    }
+    const name = input.name.trim();
+    const email = input.email.trim().toLowerCase();
+    const companyName = input.companyName.trim();
+    if (name.length < 3) return { success: false, error: 'Informe o nome do anunciante.' };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { success: false, error: 'Informe um e-mail válido.' };
+    if (companyName.length < 2) return { success: false, error: 'Informe a empresa do anunciante.' };
+    if (!input.password || input.password.length < 6) {
+      return { success: false, error: 'Defina uma senha de pelo menos 6 caracteres.' };
+    }
+    if (!isSupabaseConfigured) {
+      return { success: false, error: 'O acesso do anunciante só é gravado nas tabelas do Supabase.' };
+    }
+
+    try {
+      await registerPortalUser({
+        email,
+        password: input.password,
+        name,
+        role: 'ADVERTISER',
+        phone: input.phone.trim(),
+        companyName
+      });
+      logAuditAction('CREATE_ADVERTISER', 'PUBLICIDADE', `Acesso de anunciante criado: ${email}`);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Não foi possível cadastrar o anunciante.' };
+    }
   };
 
   const requestSellerPayout = (sellerCode: string, amount: number) => {
@@ -1692,6 +1906,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         updateAdPlan,
         deleteAdPlan,
         adCampaigns,
+        campaignsSyncError,
         coupons,
         couponsSyncError,
         addCoupon,
@@ -1705,6 +1920,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addAffiliate,
         updateAffiliate,
         setAffiliateStatus,
+        addAdvertiserAccount,
         createCampaign,
         updateCampaignStatus,
         createAdminCampaign,
