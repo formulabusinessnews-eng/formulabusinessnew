@@ -8,6 +8,7 @@ type ImageUrlFieldProps = {
   folder: string;
   placeholder?: string;
   hint?: string;
+  required?: boolean;
   inputClassName?: string;
 };
 
@@ -17,6 +18,7 @@ export const ImageUrlField: React.FC<ImageUrlFieldProps> = ({
   folder,
   placeholder = 'URL da imagem',
   hint,
+  required,
   inputClassName = 'bg-[#061827]'
 }) => {
   const [uploading, setUploading] = useState(false);
@@ -42,6 +44,7 @@ export const ImageUrlField: React.FC<ImageUrlFieldProps> = ({
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
+        required={required}
         className={`w-full border border-gray-700 rounded-lg p-2.5 text-white focus:border-[#D9A928] outline-none font-mono text-[11px] ${inputClassName}`}
       />
       <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#D9A928] text-black text-[10px] font-bold cursor-pointer">

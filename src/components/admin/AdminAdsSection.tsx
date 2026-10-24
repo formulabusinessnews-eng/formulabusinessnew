@@ -118,11 +118,9 @@ export const AdminAdsSection: React.FC = () => {
     adCampaigns,
     adPlans,
     affiliates,
-    campaignsSyncError,
     createAdminCampaign,
     updateCampaign,
-    updateCampaignStatus,
-    addAdvertiserAccount
+    updateCampaignStatus
   } = useApp();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -131,15 +129,6 @@ export const AdminAdsSection: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [advertiserForm, setAdvertiserForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    companyName: '',
-    password: ''
-  });
-  const [advertiserSaving, setAdvertiserSaving] = useState(false);
-  const [advertiserError, setAdvertiserError] = useState<string | null>(null);
 
   const netAmount = Math.max(
     0,
@@ -220,23 +209,9 @@ export const AdminAdsSection: React.FC = () => {
     }
 
     setNotice(editing
-      ? `"${form.campaignName.trim()}" atualizada no Supabase.`
-      : `"${form.campaignName.trim()}" gravada em ad_campaigns. O gasto entra no painel do anunciante com este e-mail.`);
+      ? `"${form.campaignName.trim()}" atualizada.`
+      : `"${form.campaignName.trim()}" criada e disponível no portal.`);
     setIsOpen(false);
-  };
-
-  const handleAdvertiserAccount = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setAdvertiserSaving(true);
-    setAdvertiserError(null);
-    const result = await addAdvertiserAccount(advertiserForm);
-    setAdvertiserSaving(false);
-    if (!result.success) {
-      setAdvertiserError(result.error || 'Não foi possível criar o acesso.');
-      return;
-    }
-    setNotice(`Acesso do anunciante ${advertiserForm.email.trim().toLowerCase()} criado em profiles.`);
-    setAdvertiserForm({ name: '', email: '', phone: '', companyName: '', password: '' });
   };
 
   return (
@@ -248,7 +223,7 @@ export const AdminAdsSection: React.FC = () => {
             Campanhas Publicitárias no Portal
           </h3>
           <p className="text-xs text-gray-400 mt-1">
-            Campanhas, gasto, impressões e cliques vêm da tabela ad_campaigns. O anunciante acompanha só as campanhas do próprio e-mail.
+            Crie um banner novo ou edite nome, arte, posição, período e status das campanhas já veiculadas.
           </p>
         </div>
         <button
@@ -259,32 +234,6 @@ export const AdminAdsSection: React.FC = () => {
           <Plus className="w-4 h-4" /> Nova campanha
         </button>
       </div>
-
-      {campaignsSyncError && (
-        <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
-          {campaignsSyncError}
-        </p>
-      )}
-
-      <form onSubmit={handleAdvertiserAccount} className="bg-[#020B14] border border-gray-800 rounded-2xl p-4 space-y-3">
-        <div>
-          <h4 className="text-sm font-bold text-white">Acesso do anunciante</h4>
-          <p className="text-xs text-gray-400 mt-1">
-            Cria a conta em Authentication e o perfil ADVERTISER. O painel Minha Publicidade mostra o gasto das campanhas deste e-mail.
-          </p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
-          <input className={fieldClass} placeholder="Nome" value={advertiserForm.name} onChange={event => setAdvertiserForm({ ...advertiserForm, name: event.target.value })} required />
-          <input type="email" className={fieldClass} placeholder="E-mail" value={advertiserForm.email} onChange={event => setAdvertiserForm({ ...advertiserForm, email: event.target.value })} required />
-          <input className={fieldClass} placeholder="Empresa" value={advertiserForm.companyName} onChange={event => setAdvertiserForm({ ...advertiserForm, companyName: event.target.value })} required />
-          <input className={fieldClass} placeholder="Telefone" value={advertiserForm.phone} onChange={event => setAdvertiserForm({ ...advertiserForm, phone: event.target.value })} />
-          <input type="password" className={fieldClass} placeholder="Senha" value={advertiserForm.password} onChange={event => setAdvertiserForm({ ...advertiserForm, password: event.target.value })} autoComplete="new-password" required />
-        </div>
-        {advertiserError && <p className="text-xs text-red-300">{advertiserError}</p>}
-        <button type="submit" disabled={advertiserSaving} className="px-4 py-2 rounded-lg bg-[#0A2238] border border-[#D9A928]/40 text-[#D9A928] text-xs font-bold disabled:opacity-50">
-          {advertiserSaving ? 'Criando acesso...' : 'Cadastrar anunciante'}
-        </button>
-      </form>
 
       {notice && (
         <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3">

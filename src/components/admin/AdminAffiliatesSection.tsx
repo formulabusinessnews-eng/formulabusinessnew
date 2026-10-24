@@ -162,7 +162,7 @@ export const AdminAffiliatesSection: React.FC = () => {
             Afiliados e comissões
           </h3>
           <p className="text-xs text-gray-400 mt-1">
-            Consultores, cupons e comissões gravados nas tabelas do Supabase. O afiliado entra com o e-mail e a senha definidos aqui.
+            Consultores e comissões gravados nas tabelas do Supabase. A lista só mostra o que está no banco.
           </p>
           <p className="text-[11px] text-[#D9A928] mt-1 flex items-center gap-1.5">
             <Database className="w-3.5 h-3.5" />
@@ -396,21 +396,6 @@ export const AdminAffiliatesSection: React.FC = () => {
               <label className="space-y-1">
                 <span className="text-gray-400">Cupom</span>
                 <input className={fieldClass} value={form.couponCode} onChange={event => setForm({ ...form, couponCode: event.target.value.toUpperCase() })} placeholder="Igual ao código, se vazio" />
-              </label>
-              <label className="space-y-1 sm:col-span-2">
-                <span className="text-gray-400">
-                  {editing?.userId ? 'Senha de acesso (já cadastrada)' : 'Senha de acesso'}
-                </span>
-                <input
-                  type="password"
-                  className={fieldClass}
-                  value={form.password}
-                  onChange={event => setForm({ ...form, password: event.target.value })}
-                  placeholder={editing?.userId ? 'Acesso já criado' : 'Mínimo de 6 caracteres'}
-                  required={!editing}
-                  disabled={Boolean(editing?.userId)}
-                  autoComplete="new-password"
-                />
               </label>
               <label className="space-y-1">
                 <span className="text-gray-400">Comissão (%)</span>

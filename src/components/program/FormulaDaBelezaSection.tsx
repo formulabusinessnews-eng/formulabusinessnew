@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Play, X, Sparkles, CheckCircle2, Mic2, Building2, Send } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { FormulaDaBelezaParticipationType } from '../../types';
+import { youtubePlaybackUrl } from '../../lib/youtube';
 
 type ModalView = 'none' | 'video' | 'about' | 'participate' | 'participate-success';
 
@@ -262,7 +263,7 @@ export const FormulaDaBelezaSection: React.FC = () => {
             </div>
             <div className="aspect-video w-full bg-black">
               <iframe
-                src={`${featuredVideo.videoUrl}?autoplay=1`}
+                src={youtubePlaybackUrl(featuredVideo.videoUrl)}
                 title={featuredVideo.title}
                 className="w-full h-full border-0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

@@ -29,21 +29,15 @@ export const SellerDashboard: React.FC = () => {
   const [payoutPixKey, setPayoutPixKey] = useState('');
   const [payoutSuccess, setPayoutSuccess] = useState(false);
 
-  const currentSeller = currentUser.role === 'SELLER'
-    ? affiliates.find(seller =>
-        seller.userId === currentUser.id ||
-        seller.email.trim().toLowerCase() === currentUser.email.trim().toLowerCase() ||
-        (currentUser.affiliateCode && seller.code === currentUser.affiliateCode)
-      )
-    : undefined;
+  const currentSeller = affiliates.find(s => s.code === (currentUser.affiliateCode || 'JOAO10')) || affiliates[0];
 
   if (!currentSeller) {
     return (
       <div className="w-full max-w-3xl mx-auto px-4 lg:px-8 py-16">
         <div className="bg-[#061827] border border-gray-800 rounded-2xl p-8 text-center space-y-2">
-          <h1 className="text-xl font-bold text-white">Acesso do afiliado</h1>
+          <h1 className="text-xl font-bold text-white">Nenhum consultor cadastrado</h1>
           <p className="text-sm text-gray-400">
-            Entre com o e-mail e a senha cadastrados pelo administrador. Comissões e anunciantes indicados vêm das tabelas affiliate_sellers e commissions.
+            O painel do afiliado aparece quando existe um consultor na tabela affiliate_sellers do Supabase.
           </p>
         </div>
       </div>

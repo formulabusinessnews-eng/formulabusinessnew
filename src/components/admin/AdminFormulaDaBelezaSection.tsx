@@ -16,6 +16,7 @@ import { ImageUrlField } from './ImageUrlField';
 export const AdminFormulaDaBelezaSection: React.FC = () => {
   const {
     formulaDaBeleza,
+    formulaVideosSyncError,
     updateFormulaDaBeleza,
     updateFormulaDaBelezaVideoColumn,
     setFeaturedFormulaDaBelezaVideo,
@@ -64,9 +65,15 @@ export const AdminFormulaDaBelezaSection: React.FC = () => {
           Programa Fórmula da Beleza — Gestão do Banner & Vídeos
         </h3>
         <p className="text-xs text-gray-400">
-          Edite o vídeo exibido no canto direito do banner. Cada vídeo tem uma{' '}
-          <strong className="text-[#D9A928]">COLUNA numerada</strong> (01, 02, 03...) para você não se perder nas alterações.
+          O link do YouTube fica na coluna <strong className="text-[#D9A928]">video_url</strong> da tabela{' '}
+          <strong className="text-[#D9A928]">formula_da_beleza_videos</strong>. O botão “Usar no banner” só marca{' '}
+          <strong className="text-[#D9A928]">featured_on_banner</strong>: ele não abre o YouTube. O vídeo toca ao clicar na imagem do banner na página inicial.
         </p>
+        {formulaVideosSyncError && (
+          <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
+            {formulaVideosSyncError}
+          </p>
+        )}
       </div>
 
       {/* Institutional copy */}
@@ -171,14 +178,14 @@ export const AdminFormulaDaBelezaSection: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="text-gray-400 block mb-1">URL do vídeo (embed YouTube/Vimeo)</label>
+                    <label className="text-gray-400 block mb-1">URL do vídeo (link do YouTube)</label>
                     <input
                       value={col.videoUrl}
                       onChange={e =>
                         updateFormulaDaBelezaVideoColumn(col.id, { videoUrl: e.target.value })
                       }
                       className="w-full bg-[#061827] border border-gray-700 rounded-lg p-2.5 text-white focus:border-[#D9A928] outline-none font-mono text-[11px]"
-                      placeholder="https://www.youtube.com/embed/ID"
+                      placeholder="https://www.youtube.com/watch?v=..."
                     />
                   </div>
                   <div>

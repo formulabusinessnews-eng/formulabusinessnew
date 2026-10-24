@@ -75,6 +75,8 @@ import {
   updateAffiliateRow,
   updateCommissionRow
 } from '../lib/affiliateStore';
+import { saveFormulaVideos, syncFormulaVideos } from '../lib/formulaVideoStore';
+import { canonicalYoutubeUrl } from '../lib/youtube';
 
 type AdPlanInput = {
   name: string;
@@ -233,6 +235,7 @@ interface AppContextType {
 
   // Programa Fórmula da Beleza
   formulaDaBeleza: FormulaDaBelezaProgram;
+  formulaVideosSyncError: string | null;
   updateFormulaDaBeleza: (updates: Partial<Omit<FormulaDaBelezaProgram, 'videoColumns'>>) => void;
   updateFormulaDaBelezaVideoColumn: (id: string, updates: Partial<FormulaDaBelezaVideoColumn>) => void;
   setFeaturedFormulaDaBelezaVideo: (id: string) => void;
@@ -455,6 +458,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_formula_da_beleza`);
     return saved ? JSON.parse(saved) : initialFormulaDaBelezaProgram;
   });
+  const [formulaVideosSyncError, setFormulaVideosSyncError] = useState<string | null>(null);
+  const formulaRef = useRef(formulaDaBeleza);
+  formulaRef.current = formulaDaBeleza;
+  const videoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const [formulaDaBelezaParticipations, setFormulaDaBelezaParticipations] = useState<FormulaDaBelezaParticipationRequest[]>(() => {
     const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_formula_da_beleza_participations`);
@@ -477,9 +484,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   adPlansRef.current = adPlans;
 
   const [adCampaigns, setAdCampaigns] = useState<AdCampaign[]>(() => {
-    if (isSupabaseConfigured) return [];
     const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_campaigns`);
-    return saved ? JSON.parse(saved) : initialAdCampaigns;
+    if (!saved) return initialAdCampaigns;
+    try {
+      const parsed = JSON.parse(saved) as AdCampaign[];
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialAdCampaigns;
+    } catch {
+      return initialAdCampaigns;
+    }
   });
   const [campaignsSyncError, setCampaignsSyncError] = useState<string | null>(null);
   const adCampaignsRef = useRef(adCampaigns);
@@ -547,7 +559,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [adPlans]);
 
   useEffect(() => {
-    if (isSupabaseConfigured) return;
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_campaigns`, JSON.stringify(adCampaigns));
   }, [adCampaigns]);
 
@@ -622,12 +633,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     logAuditAction('UPDATE_PROGRAM', 'FÓRMULA DA BELEZA', 'Dados institucionais do programa atualizados');
   };
 
+  const queueFormulaVideoSave = (column: FormulaDaBelezaVideoColumn) => {
+    if (!isSupabaseConfigured) return;
+    clearTimeout(videoSaveTimers.current[column.id]);
+    videoSaveTimers.current[column.id] = setTimeout(() => {
+      void saveFormulaVideos([column])
+        .then(() => setFormulaVideosSyncError(null))
+        .catch(error => {
+          setFormulaVideosSyncError(error instanceof Error ? error.message : 'Não foi possível gravar o vídeo.');
+        });
+    }, 500);
+  };
+
   const updateFormulaDaBelezaVideoColumn = (id: string, updates: Partial<FormulaDaBelezaVideoColumn>) => {
-    setFormulaDaBeleza(prev => ({
-      ...prev,
-      videoColumns: prev.videoColumns.map(col => (col.id === id ? { ...col, ...updates } : col))
-    }));
-    const col = formulaDaBeleza.videoColumns.find(c => c.id === id);
+    const nextUpdates = updates.videoUrl !== undefined
+      ? { ...updates, videoUrl: canonicalYoutubeUrl(updates.videoUrl) }
+      : updates;
+    setFormulaDaBeleza(prev => {
+      const videoColumns = prev.videoColumns.map(col => (col.id === id ? { ...col, ...nextUpdates } : col));
+      const saved = videoColumns.find(col => col.id === id);
+      if (saved) queueFormulaVideoSave(saved);
+      return { ...prev, videoColumns };
+    });
+    const col = formulaRef.current.videoColumns.find(item => item.id === id);
     logAuditAction(
       'UPDATE_VIDEO_COLUMN',
       'FÓRMULA DA BELEZA',
@@ -636,14 +664,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const setFeaturedFormulaDaBelezaVideo = (id: string) => {
-    setFormulaDaBeleza(prev => ({
-      ...prev,
-      videoColumns: prev.videoColumns.map(col => ({
+    setFormulaDaBeleza(prev => {
+      const videoColumns = prev.videoColumns.map(col => ({
         ...col,
         featuredOnBanner: col.id === id
-      }))
-    }));
-    const col = formulaDaBeleza.videoColumns.find(c => c.id === id);
+      }));
+      if (isSupabaseConfigured) {
+        Object.values(videoSaveTimers.current).forEach(timer => clearTimeout(timer));
+        void saveFormulaVideos(videoColumns)
+          .then(() => setFormulaVideosSyncError(null))
+          .catch(error => {
+            setFormulaVideosSyncError(error instanceof Error ? error.message : 'Não foi possível marcar o vídeo do banner.');
+          });
+      }
+      return { ...prev, videoColumns };
+    });
+    const col = formulaRef.current.videoColumns.find(item => item.id === id);
     logAuditAction(
       'SET_FEATURED_VIDEO',
       'FÓRMULA DA BELEZA',
@@ -659,10 +695,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         prev.videoColumns.reduce((max, col) => Math.max(max, col.columnNumber), 0) + 1;
       const newColumn: FormulaDaBelezaVideoColumn = {
         ...column,
+        videoUrl: canonicalYoutubeUrl(column.videoUrl),
         id: `fdb-col-${Date.now()}`,
         columnNumber: nextNumber,
         featuredOnBanner: prev.videoColumns.length === 0 ? true : column.featuredOnBanner
       };
+      if (isSupabaseConfigured) {
+        void saveFormulaVideos([newColumn]).catch(error => {
+          setFormulaVideosSyncError(error instanceof Error ? error.message : 'Não foi possível gravar a nova coluna.');
+        });
+      }
       return {
         ...prev,
         videoColumns: [...prev.videoColumns, newColumn]
@@ -727,7 +769,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     fetchCampaigns()
       .then(items => {
-        if (cancelled) return;
+        if (cancelled || items.length === 0) return;
         setAdCampaigns(items);
         setCampaignsSyncError(null);
         logAuditAction('SYNC_CAMPAIGNS', 'PUBLICIDADE', `Campanhas sincronizadas com o Supabase (${items.length}).`);
@@ -754,6 +796,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (cancelled) return;
         setAffiliatesSyncError(error instanceof Error ? error.message : 'Falha ao sincronizar afiliados e comissões.');
         setAffiliatesReady(true);
+      });
+
+    syncFormulaVideos()
+      .then(columns => {
+        if (cancelled || columns.length === 0) return;
+        setFormulaDaBeleza(prev => ({ ...prev, videoColumns: columns }));
+        setFormulaVideosSyncError(null);
+        logAuditAction(
+          'SYNC_FORMULA_VIDEOS',
+          'FÓRMULA DA BELEZA',
+          `Vídeos do programa sincronizados com o Supabase (${columns.length}).`
+        );
+      })
+      .catch(error => {
+        if (cancelled) return;
+        setFormulaVideosSyncError(error instanceof Error ? error.message : 'Falha ao sincronizar os vídeos do programa.');
       });
 
     return () => {
@@ -1679,22 +1737,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     const parsed = parseAffiliateInput(input);
     if ('error' in parsed) return { success: false, error: parsed.error };
-    if (!input.password || input.password.length < 6) {
-      return { success: false, error: 'Defina uma senha de pelo menos 6 caracteres para o afiliado entrar.' };
-    }
     if (!isSupabaseConfigured) {
       return { success: false, error: 'O cadastro do afiliado só é gravado nas tabelas do Supabase.' };
     }
 
     try {
-      const userId = await registerPortalUser({
-        email: parsed.email,
-        password: input.password,
-        name: parsed.name,
-        role: 'SELLER',
-        phone: parsed.phone,
-        affiliateCode: parsed.code
-      });
+      const userId = input.password
+        ? await registerPortalUser({
+            email: parsed.email,
+            password: input.password,
+            name: parsed.name,
+            role: 'SELLER',
+            phone: parsed.phone,
+            affiliateCode: parsed.code
+          })
+        : '';
       const seller: AffiliateSeller = {
         ...parsed,
         id: `seller-${Date.now()}`,
@@ -1939,6 +1996,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         preselectedAdPosition,
         setPreselectedAdPosition,
         formulaDaBeleza,
+        formulaVideosSyncError,
         updateFormulaDaBeleza,
         updateFormulaDaBelezaVideoColumn,
         setFeaturedFormulaDaBelezaVideo,

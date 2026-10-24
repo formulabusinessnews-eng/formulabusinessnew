@@ -18,6 +18,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { MagazineIssue, MagazinePage } from '../../types';
 import { ReadershipReportModal } from '../magazine/ReadershipReportModal';
+import { ImageUrlField } from './ImageUrlField';
 
 const emptyPageForm = {
   imageUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1000&auto=format&fit=crop&q=80',
@@ -149,6 +150,9 @@ export const AdminMagazineSection: React.FC = () => {
         clientAccessLink,
         clientAdvertisersFeatured: advertisersArray
       });
+      if (formData.coverImageUrl !== editingIssue.coverImageUrl) {
+        updatePageInIssue(editingIssue.id, 1, { imageUrl: formData.coverImageUrl });
+      }
     } else {
       const starterPages: MagazinePage[] = [
         {
@@ -546,18 +550,24 @@ export const AdminMagazineSection: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  URL da Imagem de Capa (Alta Resolução)
+                  Imagem de capa (alta resolução)
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    required
-                    value={formData.coverImageUrl}
-                    onChange={e => setFormData({ ...formData, coverImageUrl: e.target.value })}
-                    className="flex-1 bg-[#020B14] border border-gray-700 rounded-lg p-2.5 text-white focus:border-[#D9A928] focus:outline-none"
-                  />
-                  <div className="w-12 h-10 rounded border border-gray-700 overflow-hidden flex-shrink-0">
-                    <img src={formData.coverImageUrl} alt="Preview" className="w-full h-full object-cover" />
+                <div className="flex gap-3 items-start">
+                  <div className="flex-1 min-w-0">
+                    <ImageUrlField
+                      value={formData.coverImageUrl}
+                      onChange={url => setFormData({ ...formData, coverImageUrl: url })}
+                      folder="revista/capas"
+                      required
+                      placeholder="https://..."
+                      inputClassName="bg-[#020B14]"
+                      hint="Tamanho ideal: 960 × 1360 px, na proporção da página (cerca de A4). JPG, PNG ou WebP, até 5 MB. Na home a capa aparece em até 360 × 480 px."
+                    />
+                  </div>
+                  <div className="w-16 aspect-[12/17] rounded border border-gray-700 overflow-hidden flex-shrink-0 bg-black">
+                    {formData.coverImageUrl && (
+                      <img src={formData.coverImageUrl} alt="Prévia da capa" className="w-full h-full object-cover" />
+                    )}
                   </div>
                 </div>
               </div>
@@ -602,6 +612,9 @@ export const AdminMagazineSection: React.FC = () => {
                   placeholder="Vanguardia M&A, Apex Tech, BioEstética"
                   className="w-full bg-[#020B14] border border-gray-700 rounded-lg p-2.5 text-white focus:border-[#D9A928] focus:outline-none"
                 />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Os nomes aparecem na home, abaixo da sinopse da edição em destaque, no bloco “Marcas em Destaque nesta Edição”. Também entram no relatório de leitura da revista.
+                </p>
               </div>
 
               <div className="flex items-center gap-6 pt-2">
