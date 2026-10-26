@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Tv,
   Plus,
@@ -19,6 +19,7 @@ export const AdminFormulaDaBelezaSection: React.FC = () => {
     formulaVideosSyncError,
     updateFormulaDaBeleza,
     updateFormulaDaBelezaVideoColumn,
+    saveFormulaDaBelezaChanges,
     setFeaturedFormulaDaBelezaVideo,
     addFormulaDaBelezaVideoColumn,
     formulaDaBelezaParticipations,
@@ -32,10 +33,48 @@ export const AdminFormulaDaBelezaSection: React.FC = () => {
     duration: '10:00'
   });
 
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveMessage, setSaveMessage] = useState('');
+  const savedSnapshot = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (saveState !== 'saved' || !savedSnapshot.current) return;
+    if (savedSnapshot.current !== JSON.stringify(formulaDaBeleza)) {
+      setSaveState('idle');
+      setSaveMessage('');
+    }
+  }, [formulaDaBeleza, saveState]);
+
   const formatColumn = (n: number) => String(n).padStart(2, '0');
 
   const thumbnailSizeHint =
     'Arquivo: 1280 × 720 px (16:9), JPG ou PNG. No banner ela é recortada para 300 × 188 px no desktop e até 448 × 190 px no celular.';
+
+  const handleSave = async () => {
+    setSaveState('saving');
+    setSaveMessage('');
+    const result = await saveFormulaDaBelezaChanges();
+    if (result.success) {
+      setSaveState('saved');
+      savedSnapshot.current = JSON.stringify(formulaDaBeleza);
+      setSaveMessage('Alterações salvas. Os textos foram para formula_da_beleza e as colunas para formula_da_beleza_videos.');
+      return;
+    }
+    setSaveState('error');
+    setSaveMessage(result.error || 'Não foi possível salvar.');
+  };
+
+  const saveButton = (label = 'Salvar alterações') => (
+    <button
+      type="button"
+      onClick={handleSave}
+      disabled={saveState === 'saving'}
+      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#D9A928] text-black text-xs font-bold disabled:opacity-60"
+    >
+      {saveState === 'saved' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+      {saveState === 'saving' ? 'Salvando...' : saveState === 'saved' ? 'Salvo' : label}
+    </button>
+  );
 
   const handleAddColumn = () => {
     if (!newColumn.title.trim() || !newColumn.videoUrl.trim()) return;
@@ -78,7 +117,10 @@ export const AdminFormulaDaBelezaSection: React.FC = () => {
 
       {/* Institutional copy */}
       <div className="bg-[#061827] border border-gray-800 rounded-2xl p-6 space-y-4">
-        <h4 className="text-sm font-bold text-white uppercase tracking-wider">Textos do Banner</h4>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-sm font-bold text-white uppercase tracking-wider">Textos do Banner</h4>
+          {saveButton()}
+        </div>
         <div className="space-y-3 text-xs">
           <div>
             <label className="text-gray-400 block mb-1">Headline</label>
@@ -103,14 +145,17 @@ export const AdminFormulaDaBelezaSection: React.FC = () => {
 
       {/* Numbered video columns */}
       <div className="bg-[#061827] border border-gray-800 rounded-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h4 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
             <Hash className="w-4 h-4 text-[#D9A928]" />
             Colunas de Vídeo Numeradas
           </h4>
-          <span className="text-[10px] text-gray-400 font-mono">
-            {formulaDaBeleza.videoColumns.length} coluna(s)
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-gray-400 font-mono">
+              {formulaDaBeleza.videoColumns.length} coluna(s)
+            </span>
+            {saveButton()}
+          </div>
         </div>
         <p className="text-[11px] text-gray-400 leading-relaxed">
           A thumbnail é a mesma em todas as colunas: só muda qual delas fica no banner.
@@ -218,6 +263,9 @@ export const AdminFormulaDaBelezaSection: React.FC = () => {
                       />
                     </div>
                   </div>
+                  <div className="md:col-span-2 flex justify-end">
+                    {saveButton('Salvar esta coluna')}
+                  </div>
                 </div>
               </div>
             ))}
@@ -319,9 +367,21 @@ export const AdminFormulaDaBelezaSection: React.FC = () => {
         )}
       </div>
 
-      <div className="text-[11px] text-gray-500 flex items-center gap-1.5">
-        <Check className="w-3.5 h-3.5 text-emerald-400" />
-        Alterações são salvas automaticamente no navegador (localStorage).
+      {(saveMessage || formulaVideosSyncError) && (
+        <p className={`text-xs rounded-xl px-4 py-3 border ${
+          saveState === 'error' || formulaVideosSyncError
+            ? 'text-red-300 bg-red-500/10 border-red-500/30'
+            : 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30'
+        }`}>
+          {saveState === 'error' ? saveMessage : saveMessage || formulaVideosSyncError}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D9A928]/40 bg-[#061827] px-4 py-3">
+        <p className="text-[11px] text-gray-300">
+          Depois de alterar título, link, thumbnail ou duração, clique em salvar para gravar no Supabase.
+        </p>
+        {saveButton()}
       </div>
     </div>
   );

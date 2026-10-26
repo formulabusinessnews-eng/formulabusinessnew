@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, supabase } from './supabase';
-import { FormulaDaBelezaVideoColumn } from '../types';
+import { FormulaDaBelezaProgram, FormulaDaBelezaVideoColumn } from '../types';
 import { canonicalYoutubeUrl } from './youtube';
 
 const COLUMNS =
@@ -30,6 +30,9 @@ export function explainFormulaVideoError(error: { message: string; code?: string
   }
   if (/formula_da_beleza_videos/i.test(error.message) && /does not exist|schema cache|column|source_id/i.test(error.message)) {
     return 'Falta a estrutura dos vídeos do programa. Execute supabase/migration/008_formula_videos_painel.sql no SQL Editor.';
+  }
+  if (/formula_da_beleza/i.test(error.message) && /row-level security|does not exist|schema cache/i.test(error.message)) {
+    return 'O Supabase bloqueou a gravação dos textos do programa. Execute supabase/migration/009_formula_programa_painel.sql no SQL Editor.';
   }
   return error.message;
 }
@@ -68,6 +71,22 @@ async function fetchRows() {
     .order('column_number', { ascending: true });
   if (error) throw new Error(explainFormulaVideoError(error));
   return (data || []) as VideoRow[];
+}
+
+export async function saveFormulaProgram(program: FormulaDaBelezaProgram) {
+  const client = requireClient();
+  const { error } = await client.from('formula_da_beleza').upsert({
+    id: 'current',
+    headline: program.headline,
+    topics: program.topics,
+    about_title: program.aboutTitle,
+    about_description: program.aboutDescription,
+    about_highlights: program.aboutHighlights,
+    host_image_url: program.hostImageUrl,
+    logo_url: program.logoUrl,
+    updated_at: new Date().toISOString()
+  });
+  if (error) throw new Error(explainFormulaVideoError(error));
 }
 
 export async function saveFormulaVideos(columns: FormulaDaBelezaVideoColumn[]) {

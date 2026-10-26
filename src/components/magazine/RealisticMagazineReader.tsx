@@ -18,6 +18,8 @@ import {
 import { PageFlip } from 'page-flip/dist/js/page-flip.module.js';
 import { useApp } from '../../context/AppContext';
 import { MagazineIssue } from '../../types';
+import { toDisplayDate } from '../../lib/publishDate';
+import { magazineIssueUrl } from '../../lib/magazinePath';
 
 interface Props {
   issue: MagazineIssue;
@@ -314,7 +316,7 @@ export const RealisticMagazineReader: React.FC<Props> = ({ issue, onClose }) => 
   };
 
   const handleCopyClientLink = () => {
-    const link = issue.clientAccessLink || `${window.location.origin}/#magazine-${issue.id}`;
+    const link = magazineIssueUrl(issue.issueNumber);
     navigator.clipboard.writeText(link);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 3000);
@@ -355,28 +357,34 @@ export const RealisticMagazineReader: React.FC<Props> = ({ issue, onClose }) => 
       ref={shellRef}
       className="fixed inset-0 z-50 bg-[#020B14]/95 backdrop-blur-xl flex flex-col select-none overflow-hidden"
     >
-      <header className="h-16 border-b border-[#D9A928]/20 bg-[#061827]/90 px-4 md:px-8 flex items-center justify-between text-white z-20">
-        <div className="flex items-center gap-3">
-          <span className="p-2 rounded bg-[#D9A928]/10 text-[#D9A928] border border-[#D9A928]/30">
+      <header className="min-h-14 border-b border-[#D9A928]/20 bg-[#061827]/90 px-3 md:px-8 py-2 flex items-center gap-2 text-white z-20">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="hidden sm:inline-flex p-2 rounded bg-[#D9A928]/10 text-[#D9A928] border border-[#D9A928]/30 shrink-0">
             <BookOpen className="w-5 h-5" />
           </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wider text-[#D9A928] font-bold">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[11px] sm:text-xs uppercase tracking-wider text-[#D9A928] font-bold truncate">
                 {t.magazine.edition} #{issue.issueNumber}
               </span>
-              <span className="text-xs text-gray-400">• {issue.publishDate}</span>
+              <span className="hidden sm:inline text-xs text-gray-400 shrink-0">• {toDisplayDate(issue.publishDate)}</span>
             </div>
-            <h2 className="text-sm md:text-base font-semibold text-white truncate max-w-md">
+            <h2 className="text-sm md:text-base font-semibold text-white truncate">
               {issue.title}
             </h2>
+            {issue.clientAdvertisersFeatured.length > 0 && (
+              <p className="hidden sm:block text-[10px] text-[#D9A928] truncate">
+                {issue.clientAdvertisersFeatured.join(' · ')}
+              </p>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 md:gap-3">
+        <div className="flex items-center gap-1.5 md:gap-3 min-w-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 max-w-[42vw] sm:max-w-none">
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2 rounded-lg text-xs flex items-center gap-1.5 transition ${
+            className={`p-2 rounded-lg text-xs flex items-center gap-1.5 transition shrink-0 ${
               soundEnabled ? 'text-[#D9A928] bg-[#D9A928]/10' : 'text-gray-400 hover:text-white'
             }`}
             title={t.magazine.flipSound}
@@ -387,7 +395,7 @@ export const RealisticMagazineReader: React.FC<Props> = ({ issue, onClose }) => 
 
           <button
             onClick={handleCopyClientLink}
-            className="p-2 rounded-lg text-xs bg-[#0A2238] border border-[#D9A928]/30 hover:border-[#D9A928] text-white flex items-center gap-1.5 transition"
+            className="p-2 rounded-lg text-xs bg-[#0A2238] border border-[#D9A928]/30 hover:border-[#D9A928] text-white flex items-center gap-1.5 transition shrink-0"
             title={t.magazine.clientLink}
           >
             {copiedLink ? (
@@ -403,7 +411,7 @@ export const RealisticMagazineReader: React.FC<Props> = ({ issue, onClose }) => 
           {issue.downloadAllowed && (
             <button
               onClick={handleDownload}
-              className="p-2 rounded-lg text-xs bg-[#0A2238] border border-gray-700 hover:border-gray-500 text-white flex items-center gap-1.5 transition"
+              className="p-2 rounded-lg text-xs bg-[#0A2238] border border-gray-700 hover:border-gray-500 text-white flex items-center gap-1.5 transition shrink-0"
               title={t.magazine.downloadPdf}
             >
               <Download className="w-4 h-4 text-[#D9A928]" />
@@ -413,7 +421,7 @@ export const RealisticMagazineReader: React.FC<Props> = ({ issue, onClose }) => 
 
           <button
             onClick={() => setShowThumbnails(!showThumbnails)}
-            className={`p-2 rounded-lg text-xs transition ${
+            className={`p-2 rounded-lg text-xs transition shrink-0 ${
               showThumbnails
                 ? 'bg-[#D9A928] text-black font-semibold'
                 : 'text-gray-300 hover:text-white bg-[#0A2238]'
@@ -445,16 +453,18 @@ export const RealisticMagazineReader: React.FC<Props> = ({ issue, onClose }) => 
 
           <button
             onClick={toggleFullscreen}
-            className="p-2 rounded-lg text-gray-300 hover:text-white bg-[#0A2238] transition"
+            className="p-2 rounded-lg text-gray-300 hover:text-white bg-[#0A2238] transition shrink-0"
             title={isFullscreen ? t.magazine.exitFullscreen : t.magazine.fullscreen}
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
+          </div>
 
           <button
             onClick={onClose}
-            className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition ml-2"
+            className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition shrink-0"
             title={t.magazine.closeReader}
+            aria-label={t.magazine.closeReader}
           >
             <X className="w-5 h-5" />
           </button>

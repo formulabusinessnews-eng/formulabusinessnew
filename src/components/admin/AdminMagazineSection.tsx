@@ -19,6 +19,8 @@ import { useApp } from '../../context/AppContext';
 import { MagazineIssue, MagazinePage } from '../../types';
 import { ReadershipReportModal } from '../magazine/ReadershipReportModal';
 import { ImageUrlField } from './ImageUrlField';
+import { maskDate, toDisplayDate, toStoredDate } from '../../lib/publishDate';
+import { magazineIssueUrl, prefersPublicMagazineLink } from '../../lib/magazinePath';
 
 const emptyPageForm = {
   imageUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1000&auto=format&fit=crop&q=80',
@@ -47,6 +49,7 @@ export const AdminMagazineSection: React.FC = () => {
   const [managingPagesIssueId, setManagingPagesIssueId] = useState<string | null>(null);
   const [copiedLinkIssueId, setCopiedLinkIssueId] = useState<string | null>(null);
   const [editingPageNumber, setEditingPageNumber] = useState<number | null>(null);
+  const [dateError, setDateError] = useState<string | null>(null);
 
   // New/Edit Edition Form State
   const [formData, setFormData] = useState({
@@ -56,7 +59,7 @@ export const AdminMagazineSection: React.FC = () => {
     description: '',
     coverImageUrl: 'https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=1000&auto=format&fit=crop&q=80',
     pdfUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-    publishDate: new Date().toISOString().split('T')[0],
+    publishDate: toDisplayDate(new Date().toISOString().split('T')[0]),
     status: 'PUBLISHED' as 'PUBLISHED' | 'DRAFT' | 'ARCHIVED',
     featured: false,
     downloadAllowed: true,
@@ -94,11 +97,11 @@ export const AdminMagazineSection: React.FC = () => {
       description: 'Análise detalhada sobre os principais movimentos do mercado, líderes executivos e tendências globais.',
       coverImageUrl: 'https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=1000&auto=format&fit=crop&q=80',
       pdfUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      publishDate: new Date().toISOString().split('T')[0],
+      publishDate: toDisplayDate(new Date().toISOString().split('T')[0]),
       status: 'PUBLISHED',
       featured: false,
       downloadAllowed: true,
-      clientAccessLink: `${window.location.origin}/#magazine-parceiro-${nextNumber}`,
+      clientAccessLink: magazineIssueUrl(nextNumber),
       clientAdvertisersFeatured: 'Vanguardia Partners, Apex Corp'
     });
     setEditingIssue(null);
@@ -114,12 +117,13 @@ export const AdminMagazineSection: React.FC = () => {
       description: issue.description,
       coverImageUrl: issue.coverImageUrl,
       pdfUrl: issue.pdfUrl || '',
-      publishDate: issue.publishDate,
+      publishDate: toDisplayDate(issue.publishDate),
       status: issue.status,
       featured: issue.featured,
       downloadAllowed: issue.downloadAllowed,
-      clientAccessLink:
-        issue.clientAccessLink || `${window.location.origin}/#magazine-${issue.id}`,
+      clientAccessLink: prefersPublicMagazineLink(issue.clientAccessLink || '')
+        ? magazineIssueUrl(issue.issueNumber)
+        : issue.clientAccessLink || magazineIssueUrl(issue.issueNumber),
       clientAdvertisersFeatured: issue.clientAdvertisersFeatured.join(', ')
     });
     setIsNewEditionModalOpen(true);
@@ -127,13 +131,19 @@ export const AdminMagazineSection: React.FC = () => {
 
   const handleSaveEdition = (e: React.FormEvent) => {
     e.preventDefault();
+    const publishDate = toStoredDate(formData.publishDate);
+    if (!publishDate) {
+      setDateError('Digite a data completa, no formato dd/mm/aaaa. Exemplo: 01/09/2026.');
+      return;
+    }
+    setDateError(null);
     const advertisersArray = formData.clientAdvertisersFeatured
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
-    const clientAccessLink =
-      formData.clientAccessLink.trim() ||
-      `${window.location.origin}/#magazine-parceiro-${formData.issueNumber}`;
+    const clientAccessLink = prefersPublicMagazineLink(formData.clientAccessLink)
+      ? magazineIssueUrl(Number(formData.issueNumber))
+      : formData.clientAccessLink.trim();
 
     if (editingIssue) {
       updateMagazineIssue(editingIssue.id, {
@@ -143,7 +153,7 @@ export const AdminMagazineSection: React.FC = () => {
         description: formData.description,
         coverImageUrl: formData.coverImageUrl,
         pdfUrl: formData.pdfUrl,
-        publishDate: formData.publishDate,
+        publishDate,
         status: formData.status,
         featured: formData.featured,
         downloadAllowed: formData.downloadAllowed,
@@ -189,7 +199,7 @@ export const AdminMagazineSection: React.FC = () => {
         description: formData.description,
         coverImageUrl: formData.coverImageUrl,
         pdfUrl: formData.pdfUrl,
-        publishDate: formData.publishDate,
+        publishDate,
         pagesCount: starterPages.length,
         pages: starterPages,
         status: formData.status,
@@ -204,7 +214,7 @@ export const AdminMagazineSection: React.FC = () => {
   };
 
   const handleCopyLink = (issue: MagazineIssue) => {
-    const link = issue.clientAccessLink || `${window.location.origin}/#magazine-${issue.id}`;
+    const link = magazineIssueUrl(issue.issueNumber);
     navigator.clipboard.writeText(link);
     setCopiedLinkIssueId(issue.id);
     setTimeout(() => setCopiedLinkIssueId(null), 3000);
@@ -358,7 +368,7 @@ export const AdminMagazineSection: React.FC = () => {
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs text-[#D9A928] font-semibold flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5" />
-                    {issue.publishDate}
+                    {toDisplayDate(issue.publishDate)}
                   </span>
                   <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
                     issue.status === 'PUBLISHED' 
@@ -489,7 +499,16 @@ export const AdminMagazineSection: React.FC = () => {
                     type="number"
                     required
                     value={formData.issueNumber}
-                    onChange={e => setFormData({ ...formData, issueNumber: parseInt(e.target.value, 10) })}
+                    onChange={e => {
+                      const issueNumber = parseInt(e.target.value, 10);
+                      setFormData(current => ({
+                        ...current,
+                        issueNumber,
+                        clientAccessLink: prefersPublicMagazineLink(current.clientAccessLink)
+                          ? magazineIssueUrl(Number.isFinite(issueNumber) ? issueNumber : current.issueNumber)
+                          : current.clientAccessLink
+                      }));
+                    }}
                     className="w-full bg-[#020B14] border border-gray-700 rounded-lg p-2.5 text-white focus:border-[#D9A928] focus:outline-none"
                   />
                 </div>
@@ -499,12 +518,19 @@ export const AdminMagazineSection: React.FC = () => {
                     Data de Publicação
                   </label>
                   <input
-                    type="date"
+                    type="text"
+                    inputMode="numeric"
                     required
+                    placeholder="dd/mm/aaaa"
                     value={formData.publishDate}
-                    onChange={e => setFormData({ ...formData, publishDate: e.target.value })}
+                    onChange={e => {
+                      setDateError(null);
+                      setFormData({ ...formData, publishDate: maskDate(e.target.value) });
+                    }}
                     className="w-full bg-[#020B14] border border-gray-700 rounded-lg p-2.5 text-white focus:border-[#D9A928] focus:outline-none"
                   />
+                  <p className="text-[11px] text-gray-500 mt-1">Digite a data inteira, por exemplo 01/09/2026.</p>
+                  {dateError && <p className="text-[11px] text-red-300 mt-1">{dateError}</p>}
                 </div>
               </div>
 
@@ -593,11 +619,11 @@ export const AdminMagazineSection: React.FC = () => {
                   type="url"
                   value={formData.clientAccessLink}
                   onChange={e => setFormData({ ...formData, clientAccessLink: e.target.value })}
-                  placeholder="https://seudominio.com/#magazine-parceiro-42"
+                  placeholder="https://portalformulabusiness.com/revista/41"
                   className="w-full bg-[#020B14] border border-gray-700 rounded-lg p-2.5 text-white focus:border-[#D9A928] focus:outline-none"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  Este link é copiado pelo botão “Link Cliente” e compartilhado com anunciantes.
+                  Endereço público: {magazineIssueUrl(Number(formData.issueNumber) || 0)}. O botão “Link Cliente” copia esse caminho.
                 </p>
               </div>
 
@@ -613,7 +639,7 @@ export const AdminMagazineSection: React.FC = () => {
                   className="w-full bg-[#020B14] border border-gray-700 rounded-lg p-2.5 text-white focus:border-[#D9A928] focus:outline-none"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  Os nomes aparecem na home, abaixo da sinopse da edição em destaque, no bloco “Marcas em Destaque nesta Edição”. Também entram no relatório de leitura da revista.
+                  Ao abrir a revista, os nomes aparecem no topo, abaixo do título. Na home, aparecem sob a sinopse da edição em destaque. Também entram no relatório de leitura.
                 </p>
               </div>
 
@@ -891,8 +917,7 @@ export const AdminMagazineSection: React.FC = () => {
               <p className="text-[11px] text-gray-500">
                 Link cliente:{' '}
                 <span className="text-[#D9A928]">
-                  {managingPagesIssue.clientAccessLink ||
-                    `${window.location.origin}/#magazine-${managingPagesIssue.id}`}
+                  {magazineIssueUrl(managingPagesIssue.issueNumber)}
                 </span>
               </p>
               <button

@@ -38,6 +38,7 @@ import {
   initialEvents,
   initialFormulaDaBelezaProgram
 } from '../lib/mockData';
+import { magazineIssuePath, magazineListPath, parseMagazineRoute } from '../lib/magazinePath';
 import { translations } from '../i18n/translations';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { guestProfile, isPortalAdminIdentity, PORTAL_ADMIN_EMAIL } from '../lib/adminAccess';
@@ -75,7 +76,7 @@ import {
   updateAffiliateRow,
   updateCommissionRow
 } from '../lib/affiliateStore';
-import { saveFormulaVideos, syncFormulaVideos } from '../lib/formulaVideoStore';
+import { saveFormulaProgram, saveFormulaVideos, syncFormulaVideos } from '../lib/formulaVideoStore';
 import { canonicalYoutubeUrl } from '../lib/youtube';
 
 type AdPlanInput = {
@@ -157,7 +158,7 @@ interface AppContextType {
   magazineIssues: MagazineIssue[];
   activeMagazineId: string | null;
   openMagazineReader: (issueId: string) => void;
-  closeMagazineReader: () => void;
+  closeMagazineReader: (nextPath?: string) => void;
   addMagazineIssue: (issue: Omit<MagazineIssue, 'id' | 'analytics'>) => void;
   updateMagazineIssue: (id: string, updates: Partial<MagazineIssue>) => void;
   deleteMagazineIssue: (id: string) => void;
@@ -238,6 +239,7 @@ interface AppContextType {
   formulaVideosSyncError: string | null;
   updateFormulaDaBeleza: (updates: Partial<Omit<FormulaDaBelezaProgram, 'videoColumns'>>) => void;
   updateFormulaDaBelezaVideoColumn: (id: string, updates: Partial<FormulaDaBelezaVideoColumn>) => void;
+  saveFormulaDaBelezaChanges: () => Promise<MutationResult>;
   setFeaturedFormulaDaBelezaVideo: (id: string) => void;
   addFormulaDaBelezaVideoColumn: (column: Omit<FormulaDaBelezaVideoColumn, 'id' | 'columnNumber'>) => void;
   formulaDaBelezaParticipations: FormulaDaBelezaParticipationRequest[];
@@ -472,6 +474,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_magazines`);
     return saved ? JSON.parse(saved) : initialMagazineIssues;
   });
+  const magazineIssuesRef = useRef(magazineIssues);
+  magazineIssuesRef.current = magazineIssues;
 
   const [activeMagazineId, setActiveMagazineId] = useState<string | null>(null);
 
@@ -661,6 +665,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       'FÓRMULA DA BELEZA',
       `Coluna de vídeo ${String(col?.columnNumber ?? '').padStart(2, '0')} atualizada`
     );
+  };
+
+  const saveFormulaDaBelezaChanges = async (): Promise<MutationResult> => {
+    const program = formulaRef.current;
+    if (!isSupabaseConfigured) {
+      logAuditAction('SAVE_PROGRAM', 'FÓRMULA DA BELEZA', 'Alterações do programa guardadas neste navegador.');
+      return { success: true };
+    }
+    Object.values(videoSaveTimers.current).forEach(timer => clearTimeout(timer));
+    videoSaveTimers.current = {};
+    try {
+      await saveFormulaProgram(program);
+      if (program.videoColumns.length > 0) await saveFormulaVideos(program.videoColumns);
+      setFormulaVideosSyncError(null);
+      logAuditAction('SAVE_PROGRAM', 'FÓRMULA DA BELEZA', 'Textos e colunas de vídeo gravados no Supabase.');
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível salvar o programa.';
+      setFormulaVideosSyncError(message);
+      return { success: false, error: message };
+    }
   };
 
   const setFeaturedFormulaDaBelezaVideo = (id: string) => {
@@ -906,12 +931,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Magazine Readers & Analytics
   const openMagazineReader = (issueId: string) => {
     setActiveMagazineId(issueId);
-    // Record page 1 view
     recordMagazineRead(issueId, 1, 10);
+    const issue = magazineIssuesRef.current.find(item => item.id === issueId);
+    if (!issue) return;
+    const path = magazineIssuePath(issue.issueNumber);
+    const current = window.location.pathname.replace(/\/+$/, '') || '/';
+    if (current !== path) {
+      window.history.pushState({ magazineIssue: issue.issueNumber }, '', path);
+    }
   };
 
-  const closeMagazineReader = () => {
+  const closeMagazineReader = (nextPath?: string) => {
     setActiveMagazineId(null);
+    const target = typeof nextPath === 'string' ? nextPath : undefined;
+    if (target) {
+      const current = window.location.pathname.replace(/\/+$/, '') || '/';
+      if (current !== target) window.history.pushState({}, '', target);
+      return;
+    }
+    if (typeof window.history.state?.magazineIssue === 'number') {
+      window.history.back();
+      return;
+    }
+    if (parseMagazineRoute().kind === 'issue') {
+      window.history.pushState({}, '', magazineListPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
   };
 
   const addMagazineIssue = (issue: Omit<MagazineIssue, 'id' | 'analytics'>) => {
@@ -920,7 +965,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       id: `mag-${Date.now()}`,
       clientAccessLink:
         issue.clientAccessLink ||
-        `${window.location.origin}/#magazine-parceiro-${issue.issueNumber}`,
+        `${window.location.origin}${magazineIssuePath(issue.issueNumber)}`,
       analytics: {
         totalReaders: 1,
         totalPageviews: 1,
@@ -1033,6 +1078,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       };
     }));
   };
+
+  useEffect(() => {
+    const openFromUrl = () => {
+      const route = parseMagazineRoute();
+      if (route.kind !== 'issue') {
+        setActiveMagazineId(null);
+        return;
+      }
+      const issue = magazineIssuesRef.current.find(item => item.issueNumber === route.issueNumber);
+      if (!issue) return;
+      setActiveMagazineId(issue.id);
+      recordMagazineRead(issue.id, 1, 10);
+    };
+
+    if (parseMagazineRoute().kind === 'issue') openFromUrl();
+    window.addEventListener('popstate', openFromUrl);
+    return () => window.removeEventListener('popstate', openFromUrl);
+  }, []);
 
   const recordMagazineDownload = (issueId: string) => {
     setMagazineIssues(prev => prev.map(mag => {
@@ -1999,6 +2062,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         formulaVideosSyncError,
         updateFormulaDaBeleza,
         updateFormulaDaBelezaVideoColumn,
+        saveFormulaDaBelezaChanges,
         setFeaturedFormulaDaBelezaVideo,
         addFormulaDaBelezaVideoColumn,
         formulaDaBelezaParticipations,

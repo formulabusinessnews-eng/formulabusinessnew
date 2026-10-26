@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { MagazineIssue } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { magazineIssueUrl } from '../../lib/magazinePath';
 
 interface Props {
   issue: MagazineIssue;
@@ -30,8 +31,8 @@ export const ReadershipReportModal: React.FC<Props> = ({ issue, onClose }) => {
   const [activeTab, setActiveTab] = useState<'kpis' | 'pages' | 'devices' | 'embed'>('kpis');
 
   const analytics = issue.analytics;
-  const clientUrl = issue.clientAccessLink || `${window.location.origin}/#magazine-${issue.id}`;
-  const embedCode = `<iframe src="${window.location.origin}/revista/embed/${issue.id}" width="100%" height="700px" frameborder="0" allowfullscreen></iframe>`;
+  const clientUrl = magazineIssueUrl(issue.issueNumber);
+  const embedCode = `<iframe src="${clientUrl}" width="100%" height="700px" frameborder="0" allowfullscreen></iframe>`;
 
   const copyToClipboard = (text: string, isEmbed = false) => {
     navigator.clipboard.writeText(text);

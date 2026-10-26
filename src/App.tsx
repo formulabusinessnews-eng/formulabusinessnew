@@ -20,6 +20,7 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { EventsSection } from './components/events/EventsSection';
 import { VideosSection } from './components/video/VideosSection';
 import { NewsItem } from './types';
+import { parseMagazineRoute } from './lib/magazinePath';
 
 const MainPortalContent: React.FC = () => {
   const { 
@@ -48,7 +49,25 @@ const MainPortalContent: React.FC = () => {
     }
     setIsMobileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const route = parseMagazineRoute();
+    if (tab === 'revista') {
+      if (route.kind === 'issue') closeMagazineReader();
+      else if (route.kind === 'other') window.history.pushState({}, '', '/revista');
+      return;
+    }
+    if (route.kind !== 'other') closeMagazineReader('/');
   };
+
+  useEffect(() => {
+    const syncTab = () => {
+      const route = parseMagazineRoute();
+      if (route.kind === 'list' || route.kind === 'issue') setActiveTab('revista');
+    };
+    syncTab();
+    window.addEventListener('popstate', syncTab);
+    return () => window.removeEventListener('popstate', syncTab);
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'admin' && !isPortalAdmin) {
@@ -166,7 +185,7 @@ const MainPortalContent: React.FC = () => {
       {currentOpenMagazine && (
         <RealisticMagazineReader
           issue={currentOpenMagazine}
-          onClose={closeMagazineReader}
+          onClose={() => closeMagazineReader()}
         />
       )}
 

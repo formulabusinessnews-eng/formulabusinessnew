@@ -3,6 +3,8 @@ import { BookOpen, Sparkles, Download, Eye, BarChart3, Share2, Check, ArrowRight
 import { useApp } from '../../context/AppContext';
 import { MagazineIssue } from '../../types';
 import { ReadershipReportModal } from './ReadershipReportModal';
+import { toDisplayDate } from '../../lib/publishDate';
+import { magazineIssueUrl } from '../../lib/magazinePath';
 
 export const MagazineHomeSection: React.FC = () => {
   const { t, magazineIssues, openMagazineReader, recordMagazineDownload } = useApp();
@@ -14,7 +16,7 @@ export const MagazineHomeSection: React.FC = () => {
 
   const handleCopyLink = (issue: MagazineIssue, e: React.MouseEvent) => {
     e.stopPropagation();
-    const link = issue.clientAccessLink || `${window.location.origin}/#magazine-${issue.id}`;
+    const link = magazineIssueUrl(issue.issueNumber);
     navigator.clipboard.writeText(link);
     setCopiedId(issue.id);
     setTimeout(() => setCopiedId(null), 3000);
@@ -85,7 +87,7 @@ export const MagazineHomeSection: React.FC = () => {
                   {t.magazine.edition} #{featuredIssue.issueNumber}
                 </span>
                 <span className="text-xs text-gray-400">
-                  • {t.magazine.publishedIn} {featuredIssue.publishDate}
+                  • {t.magazine.publishedIn} {toDisplayDate(featuredIssue.publishDate)}
                 </span>
                 <span className="text-xs text-gray-400">
                   • {featuredIssue.pagesCount} {t.magazine.pages}
@@ -192,11 +194,16 @@ export const MagazineHomeSection: React.FC = () => {
                   <div className="flex-1 flex flex-col justify-between">
                     <div>
                       <span className="text-[10px] uppercase font-bold text-[#D9A928]">
-                        {issue.publishDate}
+                        {toDisplayDate(issue.publishDate)}
                       </span>
                       <h5 className="text-sm font-bold text-white group-hover:text-[#D9A928] transition line-clamp-2 mt-0.5">
                         {issue.title}
                       </h5>
+                      {issue.clientAdvertisersFeatured.length > 0 && (
+                        <span className="text-[11px] text-gray-300 mt-1 block line-clamp-2">
+                          {issue.clientAdvertisersFeatured.join(' · ')}
+                        </span>
+                      )}
                       <span className="text-xs text-gray-400 mt-1 block">
                         {issue.pagesCount} páginas
                       </span>
